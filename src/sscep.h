@@ -294,7 +294,7 @@ void usage(void);
 int
 send_msg(struct http_reply *http, int do_post, char *scep_operation,
 		int operation, char *M_char, char *payload, size_t payload_len,
-		int p_flag, char *host_name, int host_port, char *dir_name);
+		int p_flag, char *host_name, int host_port, char *dir_name, int use_ssl);
 
 /* Catch SIGALRM */
 void catchalarm (int);

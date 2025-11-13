@@ -10,6 +10,8 @@
 
 #include "sscep.h"
 #include "picohttpparser.h"
+#include <openssl/ssl.h>
+#include <openssl/err.h>
 
 #ifdef WIN32
 #include <ws2tcpip.h>
@@ -31,12 +33,12 @@ void perror_w32 (const char *message)
 char *url_encode(char *, size_t);
 void exit_string_overflow(int);
 int http_request(struct http_reply *http, const char* host_name, const char *port_str,
-                 const char *http_string, size_t rlen);
+                 const char *http_string, size_t rlen, int use_ssl);
 
 int
 send_msg(struct http_reply *http, int do_post, char *scep_operation,
 		int operation, char *M_char, char *payload, size_t payload_len,
-		int p_flag, char *host_name, int host_port, char *dir_name)
+		int p_flag, char *host_name, int host_port, char *dir_name, int use_ssl)
 {
 	char			http_string[16384];
 	size_t			rlen;
@@ -104,7 +106,7 @@ send_msg(struct http_reply *http, int do_post, char *scep_operation,
 	waited_sec = 0;
 	/* will retry with linear backoff, just like wget does */
 	while (1) {
-		ret = http_request(http, host_name, port_str, http_string, rlen);
+		ret = http_request(http, host_name, port_str, http_string, rlen, use_ssl);
 		if (ret == 0)
 			break;
 		if (ret == 2 || waited_sec >= W_flag)
@@ -241,11 +243,13 @@ char * url_encode(char *s, size_t n) {
 
 /* returns 0 if successful, 1 on network error, 2 on parse error */
 int http_request(struct http_reply *http, const char* host_name, const char *port_str,
-                   const char *http_string, size_t rlen)
+                   const char *http_string, size_t rlen, int use_ssl)
 {
 	struct addrinfo hints;
 	struct addrinfo *res, *resolve_array;
 	int rc, sd, i;
+	SSL_CTX *ssl_ctx = NULL;
+	SSL *ssl = NULL;
 
 	char *buf;
 	int used, bytes, http_chunked;
@@ -312,17 +316,63 @@ int http_request(struct http_reply *http, const char* host_name, const char *por
 	setsockopt(sd,SOL_SOCKET, SO_RCVTIMEO,(void *)&tv, sizeof(tv));
 	setsockopt(sd,SOL_SOCKET, SO_SNDTIMEO,(void *)&tv, sizeof(tv));
 
+	/* Initialize SSL if needed */
+	if (use_ssl) {
+		ssl_ctx = SSL_CTX_new(TLS_client_method());
+		if (!ssl_ctx) {
+			fprintf(stderr, "Unable to create SSL context\n");
+			ERR_print_errors_fp(stderr);
+			close(sd);
+			return (1);
+		}
+
+		ssl = SSL_new(ssl_ctx);
+		if (!ssl) {
+			fprintf(stderr, "Unable to create SSL object\n");
+			ERR_print_errors_fp(stderr);
+			SSL_CTX_free(ssl_ctx);
+			close(sd);
+			return (1);
+		}
+
+		SSL_set_fd(ssl, sd);
+
+		if (SSL_connect(ssl) <= 0) {
+			fprintf(stderr, "SSL connection failed\n");
+			ERR_print_errors_fp(stderr);
+			SSL_free(ssl);
+			SSL_CTX_free(ssl_ctx);
+			close(sd);
+			return (1);
+		}
+
+		if (v_flag)
+			fprintf(stdout, "%s: SSL/TLS connection established\n", pname);
+	}
+
 	/* send data */
-	rc = send(sd, http_string, rlen, 0);
+	if (use_ssl) {
+		rc = SSL_write(ssl, http_string, rlen);
+	} else {
+		rc = send(sd, http_string, rlen, 0);
+	}
 
 	if (rc < 0) {
 		perror("cannot send data ");
+		if (use_ssl) {
+			SSL_free(ssl);
+			SSL_CTX_free(ssl_ctx);
+		}
 		close(sd);
 		return (1);
 	}
 	else if(rc != rlen)
 	{
 		fprintf(stderr,"incomplete send\n");
+		if (use_ssl) {
+			SSL_free(ssl);
+			SSL_CTX_free(ssl_ctx);
+		}
 		close(sd);
 		return (1);
 	}
@@ -330,12 +380,23 @@ int http_request(struct http_reply *http, const char* host_name, const char *por
 	/* Get response */
 	buf = (char *)malloc(1024);
         used = 0;
-        while ((bytes = recv(sd,&buf[used],1024,0)) > 0) {
-                used += bytes;
-                buf = (char *)realloc(buf, used + 1024);
-	}
+        if (use_ssl) {
+        	while ((bytes = SSL_read(ssl, &buf[used], 1024)) > 0) {
+                	used += bytes;
+                	buf = (char *)realloc(buf, used + 1024);
+        	}
+        } else {
+        	while ((bytes = recv(sd,&buf[used],1024,0)) > 0) {
+                	used += bytes;
+                	buf = (char *)realloc(buf, used + 1024);
+        	}
+        }
 	if (bytes < 0) {
 		perror("error receiving data ");
+		if (use_ssl) {
+			SSL_free(ssl);
+			SSL_CTX_free(ssl_ctx);
+		}
 		close(sd);
 		return (1);
 	}
@@ -345,6 +406,10 @@ int http_request(struct http_reply *http, const char* host_name, const char *por
 			&http_msg, &msg_size, headers, &headers_num, 0);
 	if (rc < 0) {
 		fprintf(stderr,"cannot parse response\n");
+		if (use_ssl) {
+			SSL_free(ssl);
+			SSL_CTX_free(ssl_ctx);
+		}
 		close(sd);
 		return (2);
 	}
@@ -389,6 +454,10 @@ int http_request(struct http_reply *http, const char* host_name, const char *por
 		rc = phr_decode_chunked(&http_decoder, http->payload, &body_size);
 		if (rc < 0) {
 			fprintf(stderr,"%i cannot decode chunked payload\n", rc);
+			if (use_ssl) {
+				SSL_free(ssl);
+				SSL_CTX_free(ssl_ctx);
+			}
 			close(sd);
 			return (2);
 		}
@@ -396,6 +465,13 @@ int http_request(struct http_reply *http, const char* host_name, const char *por
 
 	http->payload[body_size] = '\0';
 	http->bytes = body_size;
+
+	/* Clean up SSL */
+	if (use_ssl) {
+		SSL_shutdown(ssl);
+		SSL_free(ssl);
+		SSL_CTX_free(ssl_ctx);
+	}
 
 #ifdef WIN32
 	closesocket(sd);

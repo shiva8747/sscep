@@ -228,6 +228,7 @@ main(int argc, char **argv) {
 	//ENGINE *e = NULL;
 	int operation_flag;
 	int			c, host_port = 80, count = 1, cnt = 0;
+	int			use_ssl = 0;
 	char			*host_name, *p, *dir_name = NULL;
 	struct http_reply	reply;
 	unsigned int		n;
@@ -570,11 +571,32 @@ main(int argc, char **argv) {
 		fprintf(stderr, "%s: missing URL (-u)\n", pname);
 		exit (SCEP_PKISTATUS_ERROR);
 	}
-	if (strncmp(url_char, "http://", 7) && !p_flag) {
-		fprintf(stderr, "%s: illegal URL %s\n", pname, url_char);
-		exit (SCEP_PKISTATUS_ERROR);
-	}
-	if (p_flag) {
+	/* Check for https:// or http:// */
+	if (!p_flag) {
+		if (!strncmp(url_char, "https://", 8)) {
+			use_ssl = 1;
+			host_port = 443;  /* Default HTTPS port */
+			#ifdef WIN32
+			if (!(host_name = _strdup(url_char + 8)))
+			#else
+			if (!(host_name = strdup(url_char + 8)))
+			#endif
+				error_memory();
+		} else if (!strncmp(url_char, "http://", 7)) {
+			use_ssl = 0;
+			host_port = 80;  /* Default HTTP port */
+			#ifdef WIN32
+			if (!(host_name = _strdup(url_char + 7)))
+			#else
+			if (!(host_name = strdup(url_char + 7)))
+			#endif
+				error_memory();
+		} else {
+			fprintf(stderr, "%s: illegal URL %s (must start with http:// or https://)\n", pname, url_char);
+			exit (SCEP_PKISTATUS_ERROR);
+		}
+	} else {
+		/* Proxy mode */
 		#ifdef WIN32
 		host_name = _strdup(p_char);
 		#else
@@ -582,12 +604,6 @@ main(int argc, char **argv) {
 		#endif
 		dir_name = url_char;
 	}
-	#ifdef WIN32
-	else if (!(host_name = _strdup(url_char + 7)))
-	#else
-	else if (!(host_name = strdup(url_char + 7)))
-	#endif
-		error_memory();
 
 	p = host_name;
 	c = 0;
@@ -645,7 +661,7 @@ main(int argc, char **argv) {
 	/* Get server capabilities */
 	reply.payload = NULL;
 	if ((c = send_msg(&reply, 0, "GetCACaps", SCEP_OPERATION_GETCAPS, NULL, NULL, 0,
-				p_flag, host_name, host_port, dir_name)) == 1) {
+				p_flag, host_name, host_port, dir_name, use_ssl)) == 1) {
 		fprintf(stderr, "%s: error while sending message\n", pname);
 		if (reply.status != 0) {
 			fprintf(stderr, "%s: HTTP status: %d\n", pname, reply.status);
@@ -741,7 +757,7 @@ main(int argc, char **argv) {
 			reply.payload = NULL;
 			if ((c = send_msg(&reply, 0, "GetCACert", operation_flag,
 					M_char, i_char, strlen(i_char),
-					p_flag, host_name, host_port, dir_name)) == 1) {
+					p_flag, host_name, host_port, dir_name, use_ssl)) == 1) {
 				fprintf(stderr, "%s: error while sending "
 					"message\n", pname);
 				if (reply.status != 0) {
@@ -823,7 +839,7 @@ main(int argc, char **argv) {
 				reply.payload = NULL;
 				if ((c = send_msg(&reply, 0, "GetNextCACert", operation_flag,
 						M_char, i_char, strlen(i_char),
-						p_flag, host_name, host_port, dir_name)) == 1) {
+						p_flag, host_name, host_port, dir_name, use_ssl)) == 1) {
 					if(v_flag){
 					fprintf(stderr, "%s: error while sending "
 						"message\n", pname);
@@ -1222,7 +1238,7 @@ not_enroll:
 			reply.payload = NULL;
 			if ((c = send_msg(&reply, SUP_CAP_POST_PKI(ca_caps), "PKIOperation", operation_flag,
 						M_char, scep_t.request_payload, scep_t.request_len,
-						p_flag, host_name, host_port, dir_name)) == 1) {
+						p_flag, host_name, host_port, dir_name, use_ssl)) == 1) {
 				fprintf(stderr, "%s: error while sending "
 					"message\n", pname);
 				if (reply.status != 0) {
