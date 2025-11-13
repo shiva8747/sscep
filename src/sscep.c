@@ -646,8 +646,13 @@ main(int argc, char **argv) {
 	reply.payload = NULL;
 	if ((c = send_msg(&reply, 0, "GetCACaps", SCEP_OPERATION_GETCAPS, NULL, NULL, 0,
 				p_flag, host_name, host_port, dir_name)) == 1) {
-		fprintf(stderr, "%s: error while sending "
-				"message\n", pname);
+		fprintf(stderr, "%s: error while sending message\n", pname);
+		if (reply.status != 0) {
+			fprintf(stderr, "%s: HTTP status: %d\n", pname, reply.status);
+			if (reply.payload != NULL && reply.bytes > 0) {
+				fprintf(stderr, "%s: server response: %s\n", pname, reply.payload);
+			}
+		}
 		exit (SCEP_PKISTATUS_NET);
 	}
 
@@ -739,6 +744,12 @@ main(int argc, char **argv) {
 					p_flag, host_name, host_port, dir_name)) == 1) {
 				fprintf(stderr, "%s: error while sending "
 					"message\n", pname);
+				if (reply.status != 0) {
+					fprintf(stderr, "%s: HTTP status: %d\n", pname, reply.status);
+					if (reply.payload != NULL && reply.bytes > 0) {
+						fprintf(stderr, "%s: server response: %s\n", pname, reply.payload);
+					}
+				}
 				exit (SCEP_PKISTATUS_NET);
 			}
 			if (reply.payload == NULL) {
@@ -818,6 +829,12 @@ main(int argc, char **argv) {
 						"message\n", pname);
 					fprintf(stderr, "%s: getnextCA might be not available"
 											"\n", pname);
+					}
+					if (reply.status != 0) {
+						fprintf(stderr, "%s: HTTP status: %d\n", pname, reply.status);
+						if (reply.payload != NULL && reply.bytes > 0) {
+							fprintf(stderr, "%s: server response: %s\n", pname, reply.payload);
+						}
 					}
 					exit (SCEP_PKISTATUS_NET);
 				}
@@ -1208,6 +1225,12 @@ not_enroll:
 						p_flag, host_name, host_port, dir_name)) == 1) {
 				fprintf(stderr, "%s: error while sending "
 					"message\n", pname);
+				if (reply.status != 0) {
+					fprintf(stderr, "%s: HTTP status: %d\n", pname, reply.status);
+					if (reply.payload != NULL && reply.bytes > 0) {
+						fprintf(stderr, "%s: server response: %s\n", pname, reply.payload);
+					}
+				}
 				exit (SCEP_PKISTATUS_NET);
 			}
 			/* Verisign Onsite returns strange reply...
