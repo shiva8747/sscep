@@ -1,0 +1,40 @@
+# SSCEP Configuration File
+# Usage: ./sscep enroll -f sscep.conf
+
+# SCEP Server URL (use https:// for TLS/SSL)
+URL = https://emsign-server1.qa.emudhra.net:444/hubWrapperAPI/scep/9f483eb9-dbdc-4648-bb20-e8feb15a0aea
+
+# CA Certificate (obtained via 'getca' operation)
+CACertFile = ca.pem
+
+# Your Private Key
+PrivateKeyFile = local.key
+
+# Certificate Request (CSR)
+RequestFile = local.csr
+
+# Where to save the issued certificate
+LocalCertFile = local.crt
+
+# Self-signed certificate (created automatically)
+SelfSignedFile = selfsigned.crt
+
+# Signature Algorithm (md5, sha1, sha256, sha384, sha512)
+SigAlgorithm = sha256
+
+# Encryption Algorithm (des, 3des, blowfish, aes128, aes192, aes256)
+EncAlgorithm = aes256
+
+# Fingerprint Algorithm for CA cert verification
+FingerPrint = sha256
+
+# Verbose output
+Verbose = yes
+
+# Polling settings (for pending certificates)
+MaxPollCount = 50
+PollInterval = 20
+MaxPollTime = 28800
+
+# Debug mode (very verbose)
+# Debug = yes
